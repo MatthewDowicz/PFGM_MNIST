@@ -4,4 +4,4 @@ Currently a WIP, but the goal of this repo is to implement the [Poisson Flow Gen
 
 For further resources on PFGMs check this great [blog post](https://www.assemblyai.com/blog/an-introduction-to-poisson-flow-generative-models/), as well as, this very informative [Observable Notebook](https://observablehq.com/@dkirkby/poisson-flow) made by my research advisor David Kirkby. 
 
-Lastly, I plan on making the code very thorough/clear, so if you find that you have any questions or suggestions please feel free to email me at mdowicz@uci.edu
+Lastly, I plan on making the code very thorough/clear, so if you find that you have any questions or suggestions please feel free to email me at mdowicz@uci.edu.
