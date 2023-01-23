@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.utils.data as data
+from typing import Any, Sequence, Optional, Tuple, Iterator, Dict, Callable, Union
 import make_dataset as mkds
 
 # Note: show_img & show_img_grid were taken from the flax MNIST tutorial
@@ -121,4 +122,69 @@ def perturb_scatter(batch, rng, tau=0.01, sigma=0.03, M=291):
     plt.xlabel('X-values (values on hyperplane $z=0$)')
     plt.ylabel('Z-values (values lifted into $N+1$ dimension)')
     plt.legend()
+    plt.show()
+
+def visualize_field(batch: np.ndarray, 
+                    sample_idx: int, 
+                    x_coord: int, 
+                    y_coord: int, 
+                    rng: Any, 
+                    set_lims: bool = False):
+    """
+    Function that visualizes the E field for a user specified pixel, as well as,
+    the specified pixel superimposed over a specific input image sample.
+
+    Args:
+    -----
+        batch: np.ndarray
+            Batch of input data
+        sample_idx: int
+            Index of the specified sample found within the batch
+        x_coord: int
+            X-coordinate of the pixel of interest
+        y_coord: int
+            Y-coordinate of the pixel of interest
+        rng: np.random.generator_.Generator
+            rng used for calculating the perturbing hyperparameters
+        set_lims: bool
+            Option to focus on a narrower x-range on the quiver plot.
+
+    Returns:
+    --------
+        A two panel plot with:
+            Left plot showing a sample image with a red circle
+            overlaid on the chosen pixel who's E field will be
+            plotted on the right (quiver) plot.
+
+            Right plot is a quiver plot depicting the E field calculated 
+            at the specified pixel value. The x/y coordinates for the points
+            in the quiver plot are the (pixel_val, z_value) in the perturbed
+            image and the (x/y) coordinates of the arrows are 
+            (E_field @ pixel_coord, E_field & z_value)
+    """
+
+
+    E = mkds.empirical_field(batch, rng)
+    x, y, data = mkds.get_perturbed(batch,rng)
+    
+    x_coord = x_coord
+    y_coord = y_coord
+    flat_coord = x_coord * x.shape[2] + y_coord
+
+    fig, ax = plt.subplots(1,2, figsize=(10,6))
+    ax[0].imshow(x[sample_idx], label='Example of Input image')
+    ax[0].scatter(x_coord, y_coord, color='red', s=40, label='Selected Pixel for every sample')
+    ax[0].set(title='Input pixel')
+    ax[0].legend()
+    ax[1].quiver(data[:, flat_coord], data[:,-1], E[:, flat_coord], E[:,-1], label='True Poisson Field');
+    ax[1].set_title(f'Poisson field for pixel {x_coord, y_coord}')
+    ax[1].set_xlabel(f'Pixel value of pixel {x_coord, y_coord}')
+    ax[1].set_ylabel(f'Z value of pixel {x_coord, y_coord}')
+
+    if set_lims == True:
+        ax[1].set_xlim(-10, 10)
+        ax[1].set_ylim(0, 2)
+    else:
+        pass
+    ax[1].legend()
     plt.show()
