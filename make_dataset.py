@@ -275,14 +275,82 @@ def get_perturbed(batch: np.ndarray,
 
     Returns:
     --------
-        img: np.ndarray
-            Array containing the perturbed input image.    
-        z: np.ndarray
-            Array containing the augmented z dimension.
+        x: np.ndarray
+            Array containing the unperturbed samples
+        y: tuple
+            Tuple containing the perturbed data & the augmented z dimension.
+            img: np.ndarray
+                Array containing the perturbed input image.    
+            z: np.ndarray
+                Array containing the augmented z dimension.
         data: np.ndarray
             The perturbed samples of shape (batch_size, img_size*img_size+1)
     """
     data = perturb(batch, rng, sigma=sigma, tau=tau, M=M, restrict_M=restrict_M)
     img = get_perturbed_img(data)
     z = get_perturbed_z(data)
-    return (img, z), data
+    y = (img, z)
+    x = batch
+    return x, y, data
+
+
+def empirical_field(batch: np.ndarray, rng: Any):
+    """
+    Function to calculate the empirical (ie. seen) Poisson field.
+    This function does the brute force calculation of what the field 
+    looks like and its output are the "labels" for our supervised learning
+    problem. This is the answer that we want the NN to learn to emulate.
+
+    Args:
+    -----
+        batch: np.ndarray
+            Batch of unperturbed sample data.
+        rng: np.random.generator_Generator
+            rng used for calculating the perturbing hyperparameters (tau/m,sigma)
+        
+    Returns:
+    --------
+        target: np.ndarray
+            Array containing the empirical field for every pixel (ie. data point).
+    """
+    # Create unperturbed batch data vec with an un-augmented extra dimension
+    # (i.e. append an extra dimension to the pixel data with the last dimension being 0)
+    z = np.zeros(len(batch))
+    unperturbed_samples_vec = np.concatenate((batch.reshape(len(batch), -1), 
+                                            z[:, None]), axis=1)
+
+    # Perturb the (augmented) batch data
+    perturbed_samples_vec = perturb(samples_batch=batch,
+                                        rng=rng)
+    # batch.shape[1/2] = img_size, batch.shape[3] = n_channels
+    data_dim = batch.shape[1] * batch.shape[2] * batch.shape[3]
+
+    # Get distance between the unperturbed vector on hyperplane (z=0) and their perturbed versions
+    # Expand dims here, so that the 2nd dim of the array doesn't collapse
+    # ie. make sure that gt_distance.shape = (batchsize, batchsize), which corresponds to a vector
+    # in the N+1 dimension space per sample <-- MAKE THIS CLEARER
+    gt_distance = np.sqrt(np.sum((np.expand_dims(perturbed_samples_vec, axis=1) - unperturbed_samples_vec) ** 2,
+                                    axis=-1, keepdims=False))
+
+    # For numerical stability, we multiply each row by its minimum value
+    # keepdims=True, so we don't lose a dimension
+    # Figure out why my code doesn't need a [0] in the numerator of the first distance var
+    distance = np.min(gt_distance, axis=1, keepdims=True) / (gt_distance + 1e-7)
+    distance = distance ** (data_dim + 1)
+    distance = distance[:, :, None]
+
+
+    # Normalize the coefficients (effectively multiply by c(x_tilde))
+    # Expand dims again to avoid losing a dimension
+    coeff = distance / (np.sum(distance, axis=1, keepdims=True) + 1e-7)
+    diff = - ((np.expand_dims(perturbed_samples_vec, axis=1) - unperturbed_samples_vec))
+
+    # Calculate the empirical Poisson Field (N+1 dimension in the augmented space)
+    gt_direction = np.sum(coeff * diff, axis=1, keepdims=False)
+    gt_norm = np.linalg.norm(gt_direction, axis=1)
+    # Normalize 
+    gt_direction /= np.reshape(gt_norm, (-1,1))
+    gt_direction *= np.sqrt(data_dim)
+
+    target = gt_direction
+    return target
