@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.utils.data as data
 from torchvision import transforms
-from torchvision.datasets import MNIST
+from torchvision.datasets import MNIST, CIFAR10
 
 from typing import Any, Sequence, Optional, Tuple, Iterator, Dict, Callable, Union
 
@@ -10,6 +10,9 @@ from typing import Any, Sequence, Optional, Tuple, Iterator, Dict, Callable, Uni
 def custom_transform(img):
     # Input: (28, 28) uint8 [0, 255] torch.Tensor, Output: (28, 28, 1) float32 [0, 1] np array
     return np.expand_dims(np.array(img, dtype=np.float32), axis=2) / 255.
+
+def cifar_transform(img):
+    return np.array(img, dtype=np.float32) / 255.
 
 def numpy_collate(batch: Any):
     """
@@ -64,7 +67,9 @@ def create_data_loaders(*datasets: Sequence[data.Dataset],
 
 def load_data_loaders(batch_size: int = 128,
                       ds_path: str = 'saved_data/', 
-                      val_on: bool = True):
+                      val_on: bool = True,
+                      dataset: Any = MNIST,
+                      data_transform: Any = custom_transform):
     """
     Function to load the created dataloaders.
 
@@ -75,32 +80,42 @@ def load_data_loaders(batch_size: int = 128,
         val_on: bool
             Toggle to decide if we want a validation set or just train/test sets.
     """
-    
+
     # Converting a uint8 [0, 255] torch.Tensor to float32 [0,1] np.array
-    test_transform = custom_transform
+    test_transform = data_transform
     # For training, we add some augmentation to reduce overfitting.
-    train_transform = custom_transform
+    train_transform = data_transform
 
     if val_on:
         # Loading the training dataset. Because val_on = True we need to split it into
         # training and validation sets. We also need to do a little trick because the
         # validation set should not use the augmentation (ie. having same behavior as
         # the test set).
-        train_dataset = MNIST(root=ds_path + "train", 
+        train_dataset = dataset(root=ds_path + "train", 
                               train=True,
                               transform=train_transform,
                               download=True)
-        val_dataset = MNIST(root=ds_path + "val",
+        val_dataset = dataset(root=ds_path + "val",
                             train=True,
                             transform=test_transform,
                             download=True)
-        # Randomly splitting (with the same seed) the training/validation training sets and then only saving the
-        # respective datasets for each one. I.e. the training set gets 50,000 samples, while the val set gets 10,000.
-        train_set, _ = data.random_split(train_dataset, [50000, 10000], generator=torch.Generator().manual_seed(42))
-        _ , val_set = data.random_split(val_dataset, [50000, 10000], generator=torch.Generator().manual_seed(42))
+
+        if dataset == MNIST:
+            # Randomly splitting (with the same seed) the training/validation training sets and then only saving the
+            # respective datasets for each one. I.e. the training set gets 50,000 samples, while the val set gets 10,000.
+            train_set, _ = data.random_split(train_dataset, [50000, 10000], generator=torch.Generator().manual_seed(42))
+            _ , val_set = data.random_split(val_dataset, [50000, 10000], generator=torch.Generator().manual_seed(42))
+
+        elif dataset == CIFAR10:
+            # Randomly splitting (with the same seed) the training/validation training sets and then only saving the
+            # respective datasets for each one. I.e. the training set gets 50,000 samples, while the val set gets 10,000.
+            train_set, _ = data.random_split(train_dataset, [40000, 10000], generator=torch.Generator().manual_seed(42))
+            _ , val_set = data.random_split(val_dataset, [40000, 10000], generator=torch.Generator().manual_seed(42))
+        else:
+            pass
 
         # Loading the test set
-        test_set = MNIST(root=ds_path + "test",
+        test_set = dataset(root=ds_path + "test",
                          train=False,
                          transform=test_transform,
                          download=True)
@@ -114,11 +129,11 @@ def load_data_loaders(batch_size: int = 128,
 
     else:
         # Create train and test sets
-        train_dataset = MNIST(root=ds_path + "train", 
+        train_dataset = dataset(root=ds_path + "train", 
                               train=True,
                               transform=train_transform,
                               download=True)
-        test_set = MNIST(root=ds_path + "test",
+        test_set = dataset(root=ds_path + "test",
                          train=False,
                          transform=test_transform,
                          download=True)
@@ -210,7 +225,7 @@ def perturb(samples_batch: np.ndarray,
     return perturbed_samples_vec
 
 
-def get_perturbed_img(perturbed_data: np.ndarray):
+def get_perturbed_img(perturbed_data: np.ndarray, input_data_shape: Tuple):
     """
     Function to get pertubed specified input image and reshape to correct form
     for plotting.
@@ -228,7 +243,7 @@ def get_perturbed_img(perturbed_data: np.ndarray):
     # Index specific sample and drop last dimension in second axis, due to that
     # being the augmented z axis.
     img = perturbed_data[:, :-1]
-    img = img.reshape(-1, 28, 28)
+    img = img.reshape(-1, input_data_shape[1], input_data_shape[2])
     return img
 
 def get_perturbed_z(perturbed_data: np.ndarray):
@@ -287,7 +302,7 @@ def get_perturbed(batch: np.ndarray,
             The perturbed samples of shape (batch_size, img_size*img_size+1)
     """
     data = perturb(batch, rng, sigma=sigma, tau=tau, M=M, restrict_M=restrict_M)
-    img = get_perturbed_img(data)
+    img = get_perturbed_img(data, batch.shape)
     z = get_perturbed_z(data)
     y = (img, z)
     x = batch
@@ -300,6 +315,7 @@ def empirical_field(batch: np.ndarray, rng: Any):
     This function does the brute force calculation of what the field 
     looks like and its output are the "labels" for our supervised learning
     problem. This is the answer that we want the NN to learn to emulate.
+    Found in losses.py under function 'get_loss_fn'
 
     Args:
     -----
@@ -316,6 +332,7 @@ def empirical_field(batch: np.ndarray, rng: Any):
     # Create unperturbed batch data vec with an un-augmented extra dimension
     # (i.e. append an extra dimension to the pixel data with the last dimension being 0)
     z = np.zeros(len(batch))
+    # z[:, None] to create a 2D array with nothing in the 2nd dim b/c it's about to be concatenated
     unperturbed_samples_vec = np.concatenate((batch.reshape(len(batch), -1), 
                                             z[:, None]), axis=1)
 
@@ -353,4 +370,4 @@ def empirical_field(batch: np.ndarray, rng: Any):
     gt_direction *= np.sqrt(data_dim)
 
     target = gt_direction
-    return target
+    return perturbed_samples_vec, target
