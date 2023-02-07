@@ -12,7 +12,7 @@ def show_img(img, ax=None, title=None):
   """Shows a single image."""
   if ax is None:
     ax = plt.gca()
-  ax.imshow(img[..., 0], cmap='gray')
+  ax.imshow(img[..., 0], cmap='viridis')
   ax.set_xticks([])
   ax.set_yticks([])
   if title:
@@ -67,14 +67,16 @@ def visualize_single_perturbed(batch, sample_idx, rng, tau=0.01, sigma=0.03, M=2
     -------
         A side by side plot of the input image and it's perturbed version
     """
-    y_tilde, _ = mkds.get_perturbed(batch, rng=rng, tau=tau, sigma=sigma, M=M)
+    _, y_tilde, _ = mkds.get_perturbed(batch, rng=rng, tau=tau, sigma=sigma, M=M)
     perturbed_img = y_tilde[0]
 
     fig, ax = plt.subplots(1, 2, figsize=(10,6))
     ax[0].imshow(batch[sample_idx])
-    ax[0].set(title='Unperturbed Sample')
+    ax[0].set(title='Unperturbed Sample ($\\tau=0$, $\sigma=0$, $M=0$)')
+    ax[0].axis('off')
     ax[1].imshow(perturbed_img[sample_idx])
-    ax[1].set_title('Perturbed Sample')
+    ax[1].set_title(f'Perturbed Sample ($\\tau=${tau}, $\sigma=${sigma}, $M=${M})')
+    ax[1].axis('off')
     plt.show()
 
 def perturb_scatter(batch, rng, tau=0.01, sigma=0.03, M=291):
@@ -112,7 +114,7 @@ def perturb_scatter(batch, rng, tau=0.01, sigma=0.03, M=291):
 
     """
 
-    y_tilde, _ = mkds.get_perturbed(batch, rng=rng, tau=tau, sigma=sigma, M=M)
+    _, y_tilde, _ = mkds.get_perturbed(batch, rng=rng, tau=tau, sigma=sigma, M=M)
     perturbed_img = y_tilde[0]
     z = y_tilde[1]
 
@@ -164,8 +166,8 @@ def visualize_field(batch: np.ndarray,
     """
 
 
-    E = mkds.empirical_field(batch, rng)
-    x, y, data = mkds.get_perturbed(batch,rng)
+    y, E = mkds.empirical_field(batch, rng)
+    x, _, _ = mkds.get_perturbed(batch,rng)
     
     x_coord = x_coord
     y_coord = y_coord
@@ -173,16 +175,19 @@ def visualize_field(batch: np.ndarray,
 
     fig, ax = plt.subplots(1,2, figsize=(10,6))
     ax[0].imshow(x[sample_idx], label='Example of Input image')
-    ax[0].scatter(x_coord, y_coord, color='red', s=40, label='Selected Pixel for every sample')
-    ax[0].set(title='Input pixel')
+    ax[0].scatter(x_coord, y_coord, color='red', s=40, label='Selected pixel')
+    ax[0].set(title='Example image of selected input pixel')
     ax[0].legend()
-    ax[1].quiver(data[:, flat_coord], data[:,-1], E[:, flat_coord], E[:,-1], label='True Poisson Field');
+    ax[1].quiver(y[:, flat_coord], y[:,-1], E[:, flat_coord], E[:,-1], label='Poisson Field of other samples');
+    # This quiver plot highlights the selected pixel in the left panel. Allowing the audience to see how 
+    # this one pixel is mapped into the N+1 dimension above the hyperplane.
+    ax[1].quiver(y[sample_idx, flat_coord], y[sample_idx,-1], E[sample_idx, flat_coord], E[sample_idx,-1], color='red', alpha=0.7, label='This pixels Poisson Field');
     ax[1].set_title(f'Poisson field for pixel {x_coord, y_coord}')
-    ax[1].set_xlabel(f'Pixel value of pixel {x_coord, y_coord}')
+    ax[1].set_xlabel(f'Perturbed pixel value of pixel {x_coord, y_coord}')
     ax[1].set_ylabel(f'Z value of pixel {x_coord, y_coord}')
 
     if set_lims == True:
-        ax[1].set_xlim(-10, 10)
+        ax[1].set_xlim(-2, 2)
         ax[1].set_ylim(0, 2)
     else:
         pass
