@@ -68,6 +68,7 @@ def create_data_loaders(*datasets: Sequence[data.Dataset],
 def load_data_loaders(batch_size: int = 128,
                       ds_path: str = 'saved_data/', 
                       val_on: bool = True,
+                      download: bool = True,
                       dataset: Any = MNIST,
                       data_transform: Any = custom_transform):
     """
@@ -94,11 +95,11 @@ def load_data_loaders(batch_size: int = 128,
         train_dataset = dataset(root=ds_path + "train", 
                               train=True,
                               transform=train_transform,
-                              download=True)
+                              download=download)
         val_dataset = dataset(root=ds_path + "val",
                             train=True,
                             transform=test_transform,
-                            download=True)
+                            download=download)
 
         if dataset == MNIST:
             # Randomly splitting (with the same seed) the training/validation training sets and then only saving the
@@ -118,7 +119,7 @@ def load_data_loaders(batch_size: int = 128,
         test_set = dataset(root=ds_path + "test",
                          train=False,
                          transform=test_transform,
-                         download=True)
+                         download=download)
 
         # Create the train/val/test data loaders
         train_loader, val_loader, test_loader = create_data_loaders(train_set, val_set, test_set,
@@ -129,14 +130,14 @@ def load_data_loaders(batch_size: int = 128,
 
     else:
         # Create train and test sets
-        train_dataset = dataset(root=ds_path + "train", 
+        train_set = dataset(root=ds_path + "train", 
                               train=True,
                               transform=train_transform,
-                              download=True)
+                              download=download)
         test_set = dataset(root=ds_path + "test",
                          train=False,
                          transform=test_transform,
-                         download=True)
+                         download=download)
 
         # Create train/test dataloaders
         train_loader, test_loader = create_data_loaders(train_set, test_set,
