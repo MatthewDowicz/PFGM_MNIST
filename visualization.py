@@ -303,7 +303,7 @@ def empirical_field_grid(batch: np.ndarray,
     target = gt_direction
     return perturbed_samples_vec, target
 
-def visualize_field_grid(batch: np.ndarray, 
+def visualize_field_grid(batchsize: int, 
                          sample_idx: int, 
                          x_coord: int, 
                          y_coord: int, 
@@ -327,8 +327,8 @@ def visualize_field_grid(batch: np.ndarray,
 
     Args:
     -----
-        batch: np.ndarray
-            Batch of input data
+        batchsize: int
+            Number of samples in batch
         sample_idx: int
             Index of the specified sample found within the batch
         x_coord: int
@@ -351,21 +351,27 @@ def visualize_field_grid(batch: np.ndarray,
             image and the (x/y) coordinates of the arrows are 
             (E_field @ pixel_coord, E_field & z_value)
     """
+    # Create a DL with a user specified batchsize
+    train_dl, _, _ = mkds.load_data_loaders(batch_size=batchsize, download=False)
+    # Get a batch of images (batch[0]) and labels (batch[1])
+    batch = next(iter(train_dl))
+    # Assign the images to a specific variable that we'll use for training
+    vis_batch = batch[0]
 
-    y, E = empirical_field_grid(batch=batch, 
+    y, E = empirical_field_grid(batch=vis_batch, 
                                rng=rng, 
                                grid_lims=grid_lims, 
                                x_coord=x_coord, 
                                y_coord=y_coord)
     
-    flat_coord = x_coord * batch.shape[2] + y_coord
+    flat_coord = x_coord * vis_batch.shape[2] + y_coord
 
     # Get all the samples of the given batch EXCEPT for the element of the sample
     # that is being plotted in the left plot
     everything_except = np.arange(len(y)) != sample_idx
 
     fig, ax = plt.subplots(1,2, figsize=(10,6))
-    ax[0].imshow(batch[sample_idx], label='Example of Input image')
+    ax[0].imshow(vis_batch[sample_idx], label='Example of Input image')
     ax[0].scatter(x_coord, y_coord, color='red', s=40, label='Selected pixel')
     ax[0].set(title='Example image of selected input pixel')
     ax[0].axis('off')
