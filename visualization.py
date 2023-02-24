@@ -370,7 +370,7 @@ def visualize_field_grid(batchsize: int,
     # that is being plotted in the left plot
     everything_except = np.arange(len(y)) != sample_idx
 
-    fig, ax = plt.subplots(1,2, figsize=(10,6))
+    fig, ax = plt.subplots(1,2, figsize=(10,8))
     ax[0].imshow(vis_batch[sample_idx], label='Example of Input image')
     ax[0].scatter(x_coord, y_coord, color='red', s=40, label='Selected pixel')
     ax[0].set(title='Example image of selected input pixel')
