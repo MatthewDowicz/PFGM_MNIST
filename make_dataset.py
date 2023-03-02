@@ -3,6 +3,7 @@ import torch
 import torch.utils.data as data
 from torchvision import transforms
 from torchvision.datasets import MNIST, CIFAR10
+import os
 
 from typing import Any, Sequence, Optional, Tuple, Iterator, Dict, Callable, Union
 
@@ -13,6 +14,118 @@ def custom_transform(img):
 
 def cifar_transform(img):
     return np.array(img, dtype=np.float32) / 255.
+
+def download_MNIST(root_dir: str = 'saved_data/',
+                   download: bool = True,
+                   dataset: Any = MNIST,
+                   transform: Callable = custom_transform):
+    """
+    Download the raw MNIST train/test data.
+    
+    NOTE: Need to update this code to allow for a lot of other datasets to be downloaded
+          (e.g. Cifar10). Just need to change the name of the function and some of the documentation.
+    
+    Args:
+    -----
+        root_dir: str
+            Path to where the raw data should be saved.
+        download: bool
+            If True, downloads the dataset from 'train-images-idx3-ubyte',
+            otherwise from 't10k-images-idx3-ubyte'.
+        dataset: Any
+            The dataset that comes pre-installed in PyTorch
+        transform: callable 
+            Function/transform that takes in an image and returns a transformed
+            version
+            
+    Returns:
+    --------
+        train_dataset: Any
+            MNIST training images/labels pairs
+        test_dataset: Any
+            MNIST testing images/labels pairs.
+    """
+    # Create the root directory if it doesn't exist
+    if not os.path.exists(root_dir):
+        os.makedirs(root_dir)
+        
+    # Pass the root directory to the MNIST dataset function
+    train_dataset = dataset(root=root_dir,
+                            train=True,
+                            transform=transform,
+                            download=download)
+    test_dataset = dataset(root=root_dir,
+                           train=False,
+                           transform=transform,
+                           download=download)
+    
+    return train_dataset, test_dataset
+
+def partition_MNIST(root_dir: str = 'saved_data/',
+                   download: bool = True,
+                   dataset: Any = MNIST,
+                   transform: Callable = custom_transform,
+                   val_on: bool = True):
+    """
+    Function to partition the raw training/test data into training, validation,
+    and test datasets. The split will be 50K, 10K, 10K, where the validation set
+    will be a random sampling without replacement from the raw training set.
+    
+    The data is not downloaded, because these partitioned sets will be immediately
+    passed to either a dataloader or a new custom dataset object.
+    
+    Args:
+    -----
+        root_dir: str
+            Path to where the raw data should be saved.
+        download: bool
+            If True, downloads the dataset from 'train-images-idx3-ubyte',
+            otherwise from 't10k-images-idx3-ubyte'.
+        dataset: Any
+            The dataset that comes pre-installed in PyTorch
+        transform: callable 
+            Function/transform that takes in an image and returns a transformed
+            version.
+        val_on: bool
+            If True, paritions the raw MNIST training dataset into a two separate
+            datasets, i.e a training set consisting of 50,000 samples/labels and a
+            validation set consisting of 10,000 samples/labels., otherwise just passes
+            the raw training/testing datasets.
+            
+    Returns:
+    --------
+        train_dataset: Any
+            Partitioned MNIST training images/label pairs.
+        validation_dataset: Any
+            MNIST validation image/label pairs. This dataset was partitioned from
+            the raw 60K training dataset.
+        test_dataset: Any
+            MNIST testing image/label pairs. This dataset is unchanged i.e. there
+            is no partitioning done on this dataset.
+    """
+    # Download/instiate the raw MNIST data
+    training_dataset, test_dataset = download_MNIST(root_dir = root_dir,
+                                                    download = download,
+                                                    dataset = dataset,
+                                                    transform = transform)
+    
+    # Instantiate the seed we'll use for the random (w/o replacement) for the train/val set partitioning
+    partition_gen = torch.Generator().manual_seed(42)
+    
+    # If we want to test with other datasets (e.g. Cifar10) can create if/else statements
+    # within the 'if val_on' statement where we just make a check for the dataset we are
+    # wanting to partition.
+    if val_on:
+        # Randomly splitting (with the same seed) the training dataset into a training/validation
+        # sets. 
+        train_set, _ = data.random_split(training_dataset, [50000, 10000], generator=partition_gen)
+        _, val_set = data.random_split(training_dataset, [50000, 10000], generator=partition_gen)
+
+        return train_set, val_set, test_dataset
+    
+    else:
+        train_set, test_dataset
+
 
 def numpy_collate(batch: Any):
     """
@@ -30,7 +143,7 @@ def create_data_loaders(*datasets: Sequence[data.Dataset],
                         train: Union[bool, Sequence[bool]] = True,
                         batch_size: int = 128,
                         num_workers: int = 4,
-                        seed: int = 42):
+                        seed: int = 32):
     """
     Creates data loaders for a set of datasets to be compatible with JAX.
 
@@ -66,85 +179,147 @@ def create_data_loaders(*datasets: Sequence[data.Dataset],
 
 
 def load_data_loaders(batch_size: int = 128,
-                      ds_path: str = 'saved_data/', 
+                      root_dir: str = 'saved_data/', 
                       val_on: bool = True,
                       download: bool = True,
                       dataset: Any = MNIST,
-                      data_transform: Any = custom_transform):
+                      transform: Callable = custom_transform):
     """
     Function to load the created dataloaders.
 
     Args:
     -----
-        ds_path: str
-            Path where the datasets should be saved
+        batch_size: int
+            The number of samples per batch to load.
+        root_dir: str
+            Path where the raw datasets are saved.
         val_on: bool
-            Toggle to decide if we want a validation set or just train/test sets.
+            If True, paritions the raw MNIST training dataset into a two separate
+            datasets, i.e a training set consisting of 50,000 samples/labels and a
+            validation set consisting of 10,000 samples/labels., otherwise just passes
+            the raw training/testing datasets.
+        download: bool
+            If True, downloads the dataset from 'train-images-idx3-ubyte',
+            otherwise from 't10k-images-idx3-ubyte'.
+        dataset: Any
+            The dataset that comes pre-installed in PyTorch
+        transform: callable 
+            Function/transform that takes in an image and returns a transformed
+            version.
     """
-
     # Converting a uint8 [0, 255] torch.Tensor to float32 [0,1] np.array
-    test_transform = data_transform
-    # For training, we add some augmentation to reduce overfitting.
-    train_transform = data_transform
-
+    test_transform = transform
+    train_transform = transform    
+    
     if val_on:
-        # Loading the training dataset. Because val_on = True we need to split it into
-        # training and validation sets. We also need to do a little trick because the
-        # validation set should not use the augmentation (ie. having same behavior as
-        # the test set).
-        train_dataset = dataset(root=ds_path + "train", 
-                              train=True,
-                              transform=train_transform,
-                              download=download)
-        val_dataset = dataset(root=ds_path + "val",
-                            train=True,
-                            transform=test_transform,
-                            download=download)
-
-        if dataset == MNIST:
-            # Randomly splitting (with the same seed) the training/validation training sets and then only saving the
-            # respective datasets for each one. I.e. the training set gets 50,000 samples, while the val set gets 10,000.
-            train_set, _ = data.random_split(train_dataset, [50000, 10000], generator=torch.Generator().manual_seed(42))
-            _ , val_set = data.random_split(val_dataset, [50000, 10000], generator=torch.Generator().manual_seed(42))
-
-        elif dataset == CIFAR10:
-            # Randomly splitting (with the same seed) the training/validation training sets and then only saving the
-            # respective datasets for each one. I.e. the training set gets 50,000 samples, while the val set gets 10,000.
-            train_set, _ = data.random_split(train_dataset, [40000, 10000], generator=torch.Generator().manual_seed(42))
-            _ , val_set = data.random_split(val_dataset, [40000, 10000], generator=torch.Generator().manual_seed(42))
-        else:
-            pass
-
-        # Loading the test set
-        test_set = dataset(root=ds_path + "test",
-                         train=False,
-                         transform=test_transform,
-                         download=download)
-
+        train_set, val_set, test_set = partition_MNIST(root_dir=root_dir,
+                                                       download=download,
+                                                       dataset=dataset,
+                                                       transform=transform,
+                                                       val_on=val_on)
         # Create the train/val/test data loaders
         train_loader, val_loader, test_loader = create_data_loaders(train_set, val_set, test_set,
                                                                     train=[True, True, False],
                                                                     batch_size=batch_size)
 
         return train_loader, val_loader, test_loader
-
-    else:
-        # Create train and test sets
-        train_set = dataset(root=ds_path + "train", 
-                              train=True,
-                              transform=train_transform,
-                              download=download)
-        test_set = dataset(root=ds_path + "test",
-                         train=False,
-                         transform=test_transform,
-                         download=download)
-
+    
+    
+    elif not val_on:
+        train_set, test_set = partition_MNIST(root_dir=root_dir,
+                                               download=download,
+                                               dataset=dataset,
+                                               transform=transform,
+                                               val_on=val_on)
         # Create train/test dataloaders
         train_loader, test_loader = create_data_loaders(train_set, test_set,
                                                         train=[True, False],
                                                         batch_size=batch_size)
 
         return train_loader, test_loader
+    
+    else:
+        pass
+# def load_data_loaders(batch_size: int = 128,
+#                       ds_path: str = 'saved_data/', 
+#                       val_on: bool = True,
+#                       download: bool = True,
+#                       dataset: Any = MNIST,
+#                       data_transform: Any = custom_transform):
+#     """
+#     Function to load the created dataloaders.
+
+#     Args:
+#     -----
+#         ds_path: str
+#             Path where the datasets should be saved
+#         val_on: bool
+#             Toggle to decide if we want a validation set or just train/test sets.
+#     """
+
+#     # Converting a uint8 [0, 255] torch.Tensor to float32 [0,1] np.array
+#     test_transform = data_transform
+#     # For training, we add some augmentation to reduce overfitting.
+#     train_transform = data_transform
+
+#     if val_on:
+#         # Loading the training dataset. Because val_on = True we need to split it into
+#         # training and validation sets. We also need to do a little trick because the
+#         # validation set should not use the augmentation (ie. having same behavior as
+#         # the test set).
+#         train_dataset = dataset(root=ds_path + "train", 
+#                               train=True,
+#                               transform=train_transform,
+#                               download=download)
+#         val_dataset = dataset(root=ds_path + "val",
+#                             train=True,
+#                             transform=test_transform,
+#                             download=download)
+
+#         if dataset == MNIST:
+#             # Randomly splitting (with the same seed) the training/validation training sets and then only saving the
+#             # respective datasets for each one. I.e. the training set gets 50,000 samples, while the val set gets 10,000.
+#             train_set, _ = data.random_split(train_dataset, [50000, 10000], generator=torch.Generator().manual_seed(42))
+#             _ , val_set = data.random_split(val_dataset, [50000, 10000], generator=torch.Generator().manual_seed(42))
+
+#         elif dataset == CIFAR10:
+#             # Randomly splitting (with the same seed) the training/validation training sets and then only saving the
+#             # respective datasets for each one. I.e. the training set gets 50,000 samples, while the val set gets 10,000.
+#             train_set, _ = data.random_split(train_dataset, [40000, 10000], generator=torch.Generator().manual_seed(42))
+#             _ , val_set = data.random_split(val_dataset, [40000, 10000], generator=torch.Generator().manual_seed(42))
+#         else:
+#             pass
+
+#         # Loading the test set
+#         test_set = dataset(root=ds_path + "test",
+#                          train=False,
+#                          transform=test_transform,
+#                          download=download)
+
+#         # Create the train/val/test data loaders
+#         train_loader, val_loader, test_loader = create_data_loaders(train_set, val_set, test_set,
+#                                                                     train=[True, True, False],
+#                                                                     batch_size=batch_size)
+
+#         return train_loader, val_loader, test_loader
+
+#     else:
+#         # Create train and test sets
+#         train_set = dataset(root=ds_path + "train", 
+#                               train=True,
+#                               transform=train_transform,
+#                               download=download)
+#         test_set = dataset(root=ds_path + "test",
+#                          train=False,
+#                          transform=test_transform,
+#                          download=download)
+
+#         # Create train/test dataloaders
+#         train_loader, test_loader = create_data_loaders(train_set, test_set,
+#                                                         train=[True, False],
+#                                                         batch_size=batch_size)
+
+#         return train_loader, test_loader
 
 
 
