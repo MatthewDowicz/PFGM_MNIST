@@ -46,7 +46,13 @@ def save_data(data: Any, directory: str, filename: str):
     if not os.path.exists(directory):
         os.makedirs(directory)
         
+        
+    # Get the absolute path of the directory to where you want to save the data to
+    directory = os.path.abspath(directory)
+    # Join the filename to the directory path to create the filepath
     filepath = os.path.join(directory, filename)
+
+    
     # Save the data into the specified file in the directory
     if type(data) == np.ndarray: # use 'np.save' if data is an numpy array
         np.save(filepath, data)
@@ -133,70 +139,80 @@ def download_MNIST(root_dir: str = 'saved_data/',
     
     return train_dataset, test_dataset
 
-# def partition_MNIST(root_dir: str = 'saved_data/',
-#                    download: bool = True,
-#                    dataset: Any = MNIST,
-#                    transform: Callable = custom_transform,
-#                    val_on: bool = True):
-#     """
-#     Function to partition the raw training/test data into training, validation,
-#     and test datasets. The split will be 50K, 10K, 10K, where the validation set
-#     will be a random sampling without replacement from the raw training set.
+def partition_MNIST(root_dir: str = '/pscratch/sd/m/mdowicz/PFGM_MNIST/saved_data/MNIST/perturbed/partitioned/',
+                    perturb_on: bool = True,
+                    download: bool = True,
+                    validation_frac: float = 1/6):
+    """
+    Function to partition the raw/perturbed training/test data into training, validation, and test
+    datasets. The split will be 50k, 10k, and 10k, where the validation set will be a random
+    sampling without replacement from the raw training set.
     
-#     The data is not downloaded, because these partitioned sets will be immediately
-#     passed to either a dataloader or a new custom dataset object.
+    Args:
+    ------
+        root_dir: str
+            Path to where the partitioned data should saved to.
+        perturb_on: bool
+            If True, partition the perturbed data consisting of the perturbed data & the empirical
+            field. Else, partition the raw unperturbed MNIST data.
+        download: bool
+             If True, download the partition dataset to the root_dir. Else, simply return the partitioned
+             dataset.
+     
+     Returns:
+     --------
+         training_set: np.ndarray
+             The 50k perturbed samples that will be used for training the NN.
+         val_set: np.ndarray
+             The 10K perturbed samples that will be used for validating the NN. These 10k samples came
+             from the raw MNIST training set. 
+         test_set: np.ndarray
+             The 10k samples that will be used to test the NN. This is the perturbed version of the raw 
+             MNIST test set.
+    """
+    # Create and save the perturbed datasets
+    training_ds, test_ds = create_perturbed_dataset()
     
-#     Args:
-#     -----
-#         root_dir: str
-#             Path to where the raw data should be saved.
-#         download: bool
-#             If True, downloads the dataset from 'train-images-idx3-ubyte',
-#             otherwise from 't10k-images-idx3-ubyte'.
-#         dataset: Any
-#             The dataset that comes pre-installed in PyTorch
-#         transform: callable 
-#             Function/transform that takes in an image and returns a transformed
-#             version.
-#         val_on: bool
-#             If True, paritions the raw MNIST training dataset into a two separate
-#             datasets, i.e a training set consisting of 50,000 samples/labels and a
-#             validation set consisting of 10,000 samples/labels., otherwise just passes
-#             the raw training/testing datasets.
-            
-#     Returns:
-#     --------
-#         train_dataset: Any
-#             Partitioned MNIST training images/label pairs.
-#         validation_dataset: Any
-#             MNIST validation image/label pairs. This dataset was partitioned from
-#             the raw 60K training dataset.
-#         test_dataset: Any
-#             MNIST testing image/label pairs. This dataset is unchanged i.e. there
-#             is no partitioning done on this dataset.
-#     """
-#     # Download/instiate the raw MNIST data
-#     training_dataset, test_dataset = download_MNIST(root_dir = root_dir,
-#                                                     download = download,
-#                                                     dataset = dataset,
-#                                                     transform = transform)
-    
-#     # Instantiate the seed we'll use for the random (w/o replacement) for the train/val set partitioning
-#     partition_gen = torch.Generator().manual_seed(42)
-    
-#     # If we want to test with other datasets (e.g. Cifar10) can create if/else statements
-#     # within the 'if val_on' statement where we just make a check for the dataset we are
-#     # wanting to partition.
-#     if val_on:
-#         # Randomly splitting (with the same seed) the training dataset into a training/validation
-#         # sets. 
-#         train_set, _ = data.random_split(training_dataset, [50000, 10000], generator=partition_gen)
-#         _, val_set = data.random_split(training_dataset, [50000, 10000], generator=partition_gen)
+    # Define the fraction of data to use for validation
+    validation_frac = validation_frac
 
-#         return train_set, val_set, test_dataset
+    # Get the number of samples in the training set
+    num_samples = training_ds[0].shape[0]
+
+    # Generate a random permutatioon of the sample indices
+    permutation = np.random.permutation(num_samples)
+
+    # Calculate the number of samples to use for validation
+    num_validation_samples = int(num_samples * validation_frac)
+
+    # Split the permutation into training and validation indices
+    validation_indices = permutation[:num_validation_samples]
+    training_indices = permutation[num_validation_samples:]
+
+    # Split the training set into training and validation sets
+    X_train_new = training_ds[0][training_indices]
+    y_train_new = training_ds[1][training_indices]
+    train_new = (X_train_new, y_train_new)
+
+    X_val = training_ds[0][validation_indices]
+    y_val = training_ds[1][validation_indices]
+    val = (X_val, y_val)
     
-#     else:
-#         return train_set, test_dataset
+    if download:
+        # Save the data
+        save_data(train_new, 
+                   directory=root_dir,
+                   filename='partitioned_training_set.pkl')
+
+        save_data(val, 
+                   directory=root_dir,
+                   filename='partitioned_val_set.pkl')
+
+        save_data(test_ds, 
+                   directory=root_dir,
+                   filename='partitioned_test_set.pkl')
+    
+    return train_new, val, test_ds
 
 def reshape_with_channel_dim(arr: np.ndarray):
     """
@@ -673,7 +689,8 @@ def process_perturbed_data(dataset: np.ndarray, prng: jax.random.PRNGKey,
 def create_perturbed_dataset(data_dir: str ='/pscratch/sd/m/mdowicz/PFGM_MNIST/saved_data/MNIST/perturbed/',
                              sigma: float = 0.01, 
                              tau: float = 0.06, 
-                             M: int = 450):
+                             M: int = 450,
+                             download: bool = True):
     """
     Function that perturbs raw MNIST datasets and returns perturbed data and empirical field 
     targets for both the raw MNIST training and test sets.
@@ -684,6 +701,9 @@ def create_perturbed_dataset(data_dir: str ='/pscratch/sd/m/mdowicz/PFGM_MNIST/s
             The path to the directory that we want the perturbed dataset to be saved to.
         filename: str
             The name of the saved data file.
+        download: bool
+            If True, save the perturbed datasets to root_dir. Otherwise, just return the
+            perturbed datasets.
             
     Returns:
     -------
@@ -709,14 +729,15 @@ def create_perturbed_dataset(data_dir: str ='/pscratch/sd/m/mdowicz/PFGM_MNIST/s
     perturbed_training = process_perturbed_data(train_data, subkey1, sigma=sigma, tau=tau, M=M)
     perturbed_test = process_perturbed_data(test_data, subkey2, sigma=sigma, tau=tau, M=M)
     
-    # Save the data
-    save_data(perturbed_training, 
-               directory=data_dir,
-               filename='perturbed_training.pkl')
+    if download == True:
+        # Save the data
+        save_data(perturbed_training, 
+                   directory=data_dir,
+                   filename='perturbed_training.pkl')
 
-    save_data(perturbed_test, 
-               directory=data_dir,
-               filename='perturbed_test.pkl')
+        save_data(perturbed_test, 
+                   directory=data_dir,
+                   filename='perturbed_test.pkl')
     
     return perturbed_training, perturbed_test
 
@@ -794,3 +815,69 @@ def get_dataloader(dataset: Any, batch_size: int, shuffle: bool = True):
         
         # Yield the batch of samples and targets
         yield batch_samples, batch_targets
+        
+def create_perturbed_DL(filename: str,
+                        root_dir: str = '/pscratch/sd/m/mdowicz/PFGM_MNIST/saved_data/MNIST/perturbed/partitioned',
+                        batch_size: int = 128,
+                        shuffle: bool = True):
+    """
+    Creates a dataloader that is compatible with JAX from the partitioned perturbed datasets.
+    
+    Args:
+    -----
+        filename: str
+            Name of the perturbed dataset.
+        root_dir: str
+            The directory where the partitioned perturbed data is located.
+        batch_size: int (Default 128)
+            Number of samples per batch.
+        shuffle: bool (Default True)
+            If True, randomly shuffle the data indices. Otherwise, use the base indices.
+            
+    Return:
+    -------
+        dataloader: generator
+            FINISH
+    """
+    # Load the specified data file
+    perturbed_data = load_data(data_dir=str(root_dir),
+                               data_file=str(filename))
+    
+    # Make a custom dataset object from the data file
+    dataset = PerturbMNIST(perturbed_data[0], perturbed_data[1])
+    
+    # Create the dataloader
+    dataloader = get_dataloader(dataset, batch_size=batch_size, shuffle=shuffle)
+    return dataloader
+
+def load_dataloaders(batch_size: int):
+    """
+    Function to load in dataloaders for the training, validation, and testing sets.
+    
+    Args:
+    ----
+        batch_size: int
+            Number of samples in the batch
+            
+    Returns:
+    --------
+        train_dataloader: generator
+            The dataloader for the perturbed training set.
+        val_dataloader: generator
+            The dataloader for the perturbed validation set.
+        test_dataloader: generator
+            The dataloader for the perturbed test set.
+    """
+    train_dataloader = create_perturbed_DL(filename='partitioned_training_set.pkl',
+                                           batch_size=batch_size,
+                                           shuffle=True)
+    
+    val_dataloader = create_perturbed_DL(filename='partitioned_val_set.pkl',
+                                           batch_size=batch_size,
+                                           shuffle=False)
+    
+    test_dataloader = create_perturbed_DL(filename='partitioned_test_set.pkl',
+                                           batch_size=batch_size,
+                                           shuffle=False)
+    
+    return train_dataloader, val_dataloader, test_dataloader
