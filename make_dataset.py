@@ -763,7 +763,7 @@ class PerturbMNIST:
         """
         return len(self.targets)
     
-    def __get_item__(self, idx: int):
+    def __getitem__(self, idx: int):
         """
         Returns the i-th sample and corresponding target in the dataset.
         
