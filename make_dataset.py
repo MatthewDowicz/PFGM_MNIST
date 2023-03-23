@@ -139,7 +139,7 @@ def download_MNIST(root_dir: str = 'saved_data/',
     
     return train_dataset, test_dataset
 
-def partition_MNIST(root_dir: str = '/pscratch/sd/m/mdowicz/PFGM_MNIST/saved_data/MNIST/perturbed/partitioned/',
+def partition_MNIST(root_dir: str = '/saved_data/MNIST/perturbed/partitioned/',
                     perturb_on: bool = True,
                     download: bool = True,
                     validation_frac: float = 1/6):
@@ -246,85 +246,6 @@ def numpy_collate(batch: Any):
     else:
         return np.array(batch)
 
-
-
-def perturb(samples_batch: np.ndarray,
-            rng: Any,
-            sigma: float = 0.01,
-            tau: float = 0.03,
-            M: int = 291,
-            restrict_M: bool = True):
-    """
-    Perturbing the augmented training data. See algorithm 2 in the PFGM paper
-    (https://arxiv.org/pdf/2209.11178.pdf.). Found under models/utils_poisson.py
-    on Github.
-    
-    Args:
-    -----
-        samples_batch: np.ndarray
-            A batch of un-augmented training data.
-        rng: np.random._generator.Generator
-            rng needed for sampling the necessary hyperparameters.
-        sigma: float
-            Noise parameter. Specifically, it's the standard deviation of the 
-            gaussian distribution that is sampled from to get the noise in x/y
-            (eps_x/eps_y).
-        tau: float
-            Hyperparameter. Not sure what it really is.. :)
-        M: float
-            Measure how far out you go from the distribution. 
-            Used to sample m, which is the exponent of (1 + \tau).
-        restrict_M: bool
-            Flag to allow confing the norms of the data to be....
-
-    Returns:
-    --------
-        perturbed_samples_vec: np.ndarray
-            The perturbed samples.
-    """
-    
-    # Sample the exponents of (1+tau) from m ~ U[0,M], should be 1D
-    m = rng.uniform(size=len(samples_batch), low=0, high=M)
-    # Sample the noise parameter for the perturbed augmented data, z
-    # Multiplying by sigma changes the variance of the gaussian but not the mean,
-    # which is what Algorithm 2 dictates.
-    eps_z = rng.standard_normal(size=(len(samples_batch), 1, 1, 1)) * sigma
-    eps_z = np.abs(eps_z)
-
-    # Confine the norms of perturbed data.
-    # See Appendix B.1.1 of paper
-    if restrict_M:
-        idx = np.squeeze(eps_z < 0.005)
-        num = int(np.sum(idx))
-        restrict_m = int(M* 0.7)
-        m[idx] = rng.uniform(size=(num,)) * restrict_m
-
-    # data_dim = data_channels (1) * data_size (28) * data_size (28)
-    data_dim = samples_batch.shape[1] * samples_batch.shape[2] * samples_batch.shape[3]
-    factor = (1 + tau) ** m
-
-    # Create the noise parameter for the perturbed data, x.
-    eps_x = rng.standard_normal(size=(len(samples_batch), data_dim)) * sigma
-    norm_eps_x = np.linalg.norm(eps_x, ord=2, axis=1) * factor
-    # Perturb z 
-    z = eps_z.squeeze() * factor 
-
-    # Sample uniform angle over unit sphere (u in Eqn. 5)
-    # gaussian = rng.standard_normal((samples_batch), data_dim)
-    gaussian = rng.standard_normal(size=(len(samples_batch), data_dim))
-    u = gaussian / np.linalg.norm(gaussian, ord=2, axis=1, keepdims=True)
-
-    # Construct the perturbation for x
-    perturbation_x = u * norm_eps_x[:, None]
-    perturbation_x = np.reshape(perturbation_x, newshape=(samples_batch.shape))
-
-    # Perturb x (ie. y in Algorithm 2)
-    y = samples_batch + perturbation_x
-    # Augment the data with extra dimension z
-    perturbed_samples_vec = np.concatenate((y.reshape(len(samples_batch), -1), 
-                                            z[:, None]), axis=1)
-    return perturbed_samples_vec
-
 def jax_perturb(samples_batch: np.ndarray,
             prng: Any,
             sigma: float = 0.05,
@@ -360,18 +281,18 @@ def jax_perturb(samples_batch: np.ndarray,
             The perturbed samples.
     """
     # Splitting of keys to allow for PRNG.
-    # rng, subkey1, subkey2, subkey3, subkey4, subkey5, subkey6 = jax.random.split(prng, num=7)
+    rng, subkey1, subkey2, subkey3, subkey4, subkey5, subkey6 = jax.random.split(prng, num=7)
     
     # Sample the exponents of (1+tau) from m ~ U[0,M], should be 1D
-    # m = random.uniform(subkey2, shape=(len(samples_batch),1), minval=0, maxval=M)
-    m = random.uniform(prng, shape=(len(samples_batch),1), minval=0, maxval=M)
+    m = random.uniform(subkey2, shape=(len(samples_batch),1), minval=0, maxval=M)
+    # m = random.uniform(prng, shape=(len(samples_batch),1), minval=0, maxval=M)
 
     
     # Sample the noise parameter for the perturbed augmented data, z
     # Multiplying by sigma changes the variance of the gaussian but not the mean,
     # which is what Algorithm 2 dictates.                       
-    # eps_z = 0 + sigma * random.normal(subkey3, shape=(len(samples_batch), 1))
-    eps_z = 0 + sigma * random.normal(prng, shape=(len(samples_batch), 1))
+    eps_z = 0 + sigma * random.normal(subkey3, shape=(len(samples_batch), 1))
+    # eps_z = 0 + sigma * random.normal(prng, shape=(len(samples_batch), 1))
     eps_z = jnp.abs(eps_z)
 
     # Confine the norms of perturbed data.
@@ -383,8 +304,8 @@ def jax_perturb(samples_batch: np.ndarray,
         # restrict_m = int(M* 0.7)
         restrict_m = jnp.array(M*0.7, int)
 
-        # m = m.at[idx, 0].set(random.uniform(subkey4, shape=(num,), minval=0, maxval=restrict_m))
-        m = m.at[idx, 0].set(random.uniform(prng, shape=(num,), minval=0, maxval=restrict_m))
+        m = m.at[idx, 0].set(random.uniform(subkey4, shape=(num,), minval=0, maxval=restrict_m))
+        # m = m.at[idx, 0].set(random.uniform(prng, shape=(num,), minval=0, maxval=restrict_m))
 
     # data_dim = data_channels (1) * data_size (28) * data_size (28)
     data_dim = samples_batch.shape[1] * samples_batch.shape[2] * samples_batch.shape[3]
@@ -393,8 +314,8 @@ def jax_perturb(samples_batch: np.ndarray,
     # Create the noise parameter for the perturbed data, x.
     # eps_x = rng.standard_normal(size=(len(samples_batch), data_dim)) * sigma
     # norm_eps_x = np.linalg.norm(eps_x, ord=2, axis=1) * factor                  
-    # eps_x = 0 + sigma * random.normal(subkey5, shape=(len(samples_batch), data_dim))
-    eps_x = 0 + sigma * random.normal(prng, shape=(len(samples_batch), data_dim))
+    eps_x = 0 + sigma * random.normal(subkey5, shape=(len(samples_batch), data_dim))
+    # eps_x = 0 + sigma * random.normal(prng, shape=(len(samples_batch), data_dim))
 
     norm_eps_x = jnp.linalg.norm(eps_x, ord=2, axis=1) * factor[:, 0]
                              
@@ -402,8 +323,8 @@ def jax_perturb(samples_batch: np.ndarray,
     z = jnp.squeeze(eps_z) * factor[:,0]
 
     # Sample uniform angle over unit sphere (u in Eqn. 5)
-    # gaussian = random.normal(subkey6, shape=(len(samples_batch), data_dim))
-    gaussian = random.normal(prng, shape=(len(samples_batch), data_dim))
+    gaussian = random.normal(subkey6, shape=(len(samples_batch), data_dim))
+    # gaussian = random.normal(prng, shape=(len(samples_batch), data_dim))
     unit_gaussian = gaussian / jnp.linalg.norm(gaussian, ord=2, axis=1, keepdims=True)
 
     # Construct the perturbation for x
@@ -417,153 +338,6 @@ def jax_perturb(samples_batch: np.ndarray,
                                             z[:,None]), axis=1)
     return perturbed_samples_vec
 
-
-def get_perturbed_img(perturbed_data: np.ndarray, input_data_shape: Tuple):
-    """
-    Function to get pertubed specified input image and reshape to correct form
-    for plotting.
-
-    Args:
-    -----
-        perturbed_data: np.ndarray
-            The output of the 'perturb' function.
-
-    Returns:
-    --------
-        img: np.ndarray
-            Array containing the perturbed input image.
-    """
-    # Index specific sample and drop last dimension in second axis, due to that
-    # being the augmented z axis.
-    img = perturbed_data[:, :-1]
-    img = img.reshape(-1, input_data_shape[1], input_data_shape[2])
-    return img
-
-def get_perturbed_z(perturbed_data: np.ndarray):
-    """
-    Function to get a specified samples augmented z value.
-
-    Args:
-    -----
-        perturbed_data: np.ndarray
-            The output of the 'perturb' function.
-
-    Returns:
-    --------
-        z: np.ndarray
-            Array containing the augmented z dimension.
-    """
-    z = perturbed_data[:, -1]
-    return z
-
-def get_perturbed(batch: np.ndarray,
-                  rng: Any, 
-                  sigma: float = 0.01,
-                  tau: float = 0.03,
-                  M: int = 291, 
-                  restrict_M: bool = True):
-    """
-    Function that returns the three variables presented at the end of 
-    Algorithm 2 in the paper. I.e.:
-
-        y_tilde = (y, z) where:
-            y_tilde = data
-            y = img
-            z = z
-
-    Args:
-    -----
-        batch: np.ndarray
-            Batch of data to perturb for NN training.
-        rng: np.random._generator.Generator
-            rng number used for sampling the hyperparameters to perturb
-            the data to be used in the NN.
-        M: int
-            M hyperparameter found in Algorithm 2.
-
-    Returns:
-    --------
-        x: np.ndarray
-            Array containing the unperturbed samples
-        y: tuple
-            Tuple containing the perturbed data & the augmented z dimension.
-            img: np.ndarray
-                Array containing the perturbed input image.    
-            z: np.ndarray
-                Array containing the augmented z dimension.
-        data: np.ndarray
-            The perturbed samples of shape (batch_size, img_size*img_size+1)
-    """
-    data = perturb(batch, rng, sigma=sigma, tau=tau, M=M, restrict_M=restrict_M)
-    img = get_perturbed_img(data, batch.shape)
-    z = get_perturbed_z(data)
-    y = (img, z)
-    x = batch
-    return x, y, data
-
-
-def empirical_field(batch: np.ndarray, rng: Any):
-    """
-    Function to calculate the empirical (ie. seen) Poisson field.
-    This function does the brute force calculation of what the field 
-    looks like and its output are the "labels" for our supervised learning
-    problem. This is the answer that we want the NN to learn to emulate.
-    Found in losses.py under function 'get_loss_fn'
-
-    Args:
-    -----
-        batch: np.ndarray
-            Batch of unperturbed sample data.
-        rng: np.random.generator_Generator
-            rng used for calculating the perturbing hyperparameters (tau/m,sigma)
-        
-    Returns:
-    --------
-        target: np.ndarray
-            Array containing the empirical field for every pixel (ie. data point).
-    """
-    # Create unperturbed batch data vec with an un-augmented extra dimension
-    # (i.e. append an extra dimension to the pixel data with the last dimension being 0)
-    z = np.zeros(len(batch))
-    # z[:, None] to create a 2D array with nothing in the 2nd dim b/c it's about to be concatenated
-    unperturbed_samples_vec = np.concatenate((batch.reshape(len(batch), -1), 
-                                            z[:, None]), axis=1)
-
-    # Perturb the (augmented) batch data
-    perturbed_samples_vec = perturb(samples_batch=batch,
-                                        rng=rng)
-    # batch.shape[1/2] = img_size, batch.shape[3] = n_channels
-    data_dim = batch.shape[1] * batch.shape[2] * batch.shape[3]
-
-    # Get distance between the unperturbed vector on hyperplane (z=0) and their perturbed versions
-    # Expand dims here, so that the 2nd dim of the array doesn't collapse
-    # ie. make sure that gt_distance.shape = (batchsize, batchsize), which corresponds to a vector
-    # in the N+1 dimension space per sample <-- MAKE THIS CLEARER
-    gt_distance = np.sqrt(np.sum((np.expand_dims(perturbed_samples_vec, axis=1) - unperturbed_samples_vec) ** 2,
-                                    axis=-1, keepdims=False))
-
-    # For numerical stability, we multiply each row by its minimum value
-    # keepdims=True, so we don't lose a dimension
-    # Figure out why my code doesn't need a [0] in the numerator of the first distance var
-    distance = np.min(gt_distance, axis=1, keepdims=True) / (gt_distance + 1e-7)
-    distance = distance ** (data_dim + 1)
-    distance = distance[:, :, None]
-
-
-    # Normalize the coefficients (effectively multiply by c(x_tilde))
-    # Expand dims again to avoid losing a dimension
-    coeff = distance / (np.sum(distance, axis=1, keepdims=True) + 1e-7)
-    diff = - ((np.expand_dims(perturbed_samples_vec, axis=1) - unperturbed_samples_vec))
-
-    # Calculate the empirical Poisson Field (N+1 dimension in the augmented space)
-    gt_direction = np.sum(coeff * diff, axis=1, keepdims=False)
-    gt_norm = np.linalg.norm(gt_direction, axis=1)
-    # Normalize 
-    gt_direction /= np.reshape(gt_norm, (-1,1))
-    gt_direction *= np.sqrt(data_dim)
-
-    target = gt_direction
-    return perturbed_samples_vec, target
 
 def jax_empirical_field(batch: np.ndarray, 
                         prng: Any, 
@@ -817,7 +591,7 @@ def get_dataloader(dataset: Any, batch_size: int, shuffle: bool = True):
         yield batch_samples, batch_targets
         
 def create_perturbed_DL(filename: str,
-                        root_dir: str = '/pscratch/sd/m/mdowicz/PFGM_MNIST/saved_data/MNIST/perturbed/partitioned',
+                        root_dir: str = 'saved_data/MNIST/perturbed/partitioned',
                         batch_size: int = 128,
                         shuffle: bool = True):
     """
@@ -881,3 +655,233 @@ def load_dataloaders(batch_size: int):
                                            shuffle=False)
     
     return train_dataloader, val_dataloader, test_dataloader
+
+
+
+
+
+#### Numpy Implementation of the Perturbation Algorith ####
+def perturb(samples_batch: np.ndarray,
+            rng: Any,
+            sigma: float = 0.01,
+            tau: float = 0.03,
+            M: int = 291,
+            restrict_M: bool = True):
+    """
+    Perturbing the augmented training data. See algorithm 2 in the PFGM paper
+    (https://arxiv.org/pdf/2209.11178.pdf.). Found under models/utils_poisson.py
+    on Github.
+    
+    Args:
+    -----
+        samples_batch: np.ndarray
+            A batch of un-augmented training data.
+        rng: np.random._generator.Generator
+            rng needed for sampling the necessary hyperparameters.
+        sigma: float
+            Noise parameter. Specifically, it's the standard deviation of the 
+            gaussian distribution that is sampled from to get the noise in x/y
+            (eps_x/eps_y).
+        tau: float
+            Hyperparameter. Not sure what it really is.. :)
+        M: float
+            Measure how far out you go from the distribution. 
+            Used to sample m, which is the exponent of (1 + \tau).
+        restrict_M: bool
+            Flag to allow confing the norms of the data to be....
+
+    Returns:
+    --------
+        perturbed_samples_vec: np.ndarray
+            The perturbed samples.
+    """
+    
+    # Sample the exponents of (1+tau) from m ~ U[0,M], should be 1D
+    m = rng.uniform(size=len(samples_batch), low=0, high=M)
+    # Sample the noise parameter for the perturbed augmented data, z
+    # Multiplying by sigma changes the variance of the gaussian but not the mean,
+    # which is what Algorithm 2 dictates.
+    eps_z = rng.standard_normal(size=(len(samples_batch), 1, 1, 1)) * sigma
+    eps_z = np.abs(eps_z)
+
+    # Confine the norms of perturbed data.
+    # See Appendix B.1.1 of paper
+    if restrict_M:
+        idx = np.squeeze(eps_z < 0.005)
+        num = int(np.sum(idx))
+        restrict_m = int(M* 0.7)
+        m[idx] = rng.uniform(size=(num,)) * restrict_m
+
+    # data_dim = data_channels (1) * data_size (28) * data_size (28)
+    data_dim = samples_batch.shape[1] * samples_batch.shape[2] * samples_batch.shape[3]
+    factor = (1 + tau) ** m
+
+    # Create the noise parameter for the perturbed data, x.
+    eps_x = rng.standard_normal(size=(len(samples_batch), data_dim)) * sigma
+    norm_eps_x = np.linalg.norm(eps_x, ord=2, axis=1) * factor
+    # Perturb z 
+    z = eps_z.squeeze() * factor 
+
+    # Sample uniform angle over unit sphere (u in Eqn. 5)
+    # gaussian = rng.standard_normal((samples_batch), data_dim)
+    gaussian = rng.standard_normal(size=(len(samples_batch), data_dim))
+    u = gaussian / np.linalg.norm(gaussian, ord=2, axis=1, keepdims=True)
+
+    # Construct the perturbation for x
+    perturbation_x = u * norm_eps_x[:, None]
+    perturbation_x = np.reshape(perturbation_x, newshape=(samples_batch.shape))
+
+    # Perturb x (ie. y in Algorithm 2)
+    y = samples_batch + perturbation_x
+    # Augment the data with extra dimension z
+    perturbed_samples_vec = np.concatenate((y.reshape(len(samples_batch), -1), 
+                                            z[:, None]), axis=1)
+    return perturbed_samples_vec
+
+
+def empirical_field(batch: np.ndarray, rng: Any):
+    """
+    Function to calculate the empirical (ie. seen) Poisson field.
+    This function does the brute force calculation of what the field 
+    looks like and its output are the "labels" for our supervised learning
+    problem. This is the answer that we want the NN to learn to emulate.
+    Found in losses.py under function 'get_loss_fn'
+
+    Args:
+    -----
+        batch: np.ndarray
+            Batch of unperturbed sample data.
+        rng: np.random.generator_Generator
+            rng used for calculating the perturbing hyperparameters (tau/m,sigma)
+        
+    Returns:
+    --------
+        target: np.ndarray
+            Array containing the empirical field for every pixel (ie. data point).
+    """
+    # Create unperturbed batch data vec with an un-augmented extra dimension
+    # (i.e. append an extra dimension to the pixel data with the last dimension being 0)
+    z = np.zeros(len(batch))
+    # z[:, None] to create a 2D array with nothing in the 2nd dim b/c it's about to be concatenated
+    unperturbed_samples_vec = np.concatenate((batch.reshape(len(batch), -1), 
+                                            z[:, None]), axis=1)
+
+    # Perturb the (augmented) batch data
+    perturbed_samples_vec = perturb(samples_batch=batch,
+                                        rng=rng)
+    # batch.shape[1/2] = img_size, batch.shape[3] = n_channels
+    data_dim = batch.shape[1] * batch.shape[2] * batch.shape[3]
+
+    # Get distance between the unperturbed vector on hyperplane (z=0) and their perturbed versions
+    # Expand dims here, so that the 2nd dim of the array doesn't collapse
+    # ie. make sure that gt_distance.shape = (batchsize, batchsize), which corresponds to a vector
+    # in the N+1 dimension space per sample <-- MAKE THIS CLEARER
+    gt_distance = np.sqrt(np.sum((np.expand_dims(perturbed_samples_vec, axis=1) - unperturbed_samples_vec) ** 2,
+                                    axis=-1, keepdims=False))
+
+    # For numerical stability, we multiply each row by its minimum value
+    # keepdims=True, so we don't lose a dimension
+    # Figure out why my code doesn't need a [0] in the numerator of the first distance var
+    distance = np.min(gt_distance, axis=1, keepdims=True) / (gt_distance + 1e-7)
+    distance = distance ** (data_dim + 1)
+    distance = distance[:, :, None]
+
+
+    # Normalize the coefficients (effectively multiply by c(x_tilde))
+    # Expand dims again to avoid losing a dimension
+    coeff = distance / (np.sum(distance, axis=1, keepdims=True) + 1e-7)
+    diff = - ((np.expand_dims(perturbed_samples_vec, axis=1) - unperturbed_samples_vec))
+
+    # Calculate the empirical Poisson Field (N+1 dimension in the augmented space)
+    gt_direction = np.sum(coeff * diff, axis=1, keepdims=False)
+    gt_norm = np.linalg.norm(gt_direction, axis=1)
+    # Normalize 
+    gt_direction /= np.reshape(gt_norm, (-1,1))
+    gt_direction *= np.sqrt(data_dim)
+
+    target = gt_direction
+    return perturbed_samples_vec, target
+
+
+def get_perturbed_img(perturbed_data: np.ndarray, input_data_shape: Tuple):
+    """
+    Function to get pertubed specified input image and reshape to correct form
+    for plotting.
+
+    Args:
+    -----
+        perturbed_data: np.ndarray
+            The output of the 'perturb' function.
+
+    Returns:
+    --------
+        img: np.ndarray
+            Array containing the perturbed input image.
+    """
+    # Index specific sample and drop last dimension in second axis, due to that
+    # being the augmented z axis.
+    img = perturbed_data[:, :-1]
+    img = img.reshape(-1, input_data_shape[1], input_data_shape[2])
+    return img
+
+def get_perturbed_z(perturbed_data: np.ndarray):
+    """
+    Function to get a specified samples augmented z value.
+
+    Args:
+    -----
+        perturbed_data: np.ndarray
+            The output of the 'perturb' function.
+
+    Returns:
+    --------
+        z: np.ndarray
+            Array containing the augmented z dimension.
+    """
+    z = perturbed_data[:, -1]
+    return z
+
+def get_perturbed(batch: np.ndarray,
+                  rng: Any, 
+                  sigma: float = 0.01,
+                  tau: float = 0.03,
+                  M: int = 291, 
+                  restrict_M: bool = True):
+    """
+    Function that returns the three variables presented at the end of 
+    Algorithm 2 in the paper. I.e.:
+
+        y_tilde = (y, z) where:
+            y_tilde = data
+            y = img
+            z = z
+
+    Args:
+    -----
+        batch: np.ndarray
+            Batch of data to perturb for NN training.
+        rng: np.random._generator.Generator
+            rng number used for sampling the hyperparameters to perturb
+            the data to be used in the NN.
+        M: int
+            M hyperparameter found in Algorithm 2.
+
+    Returns:
+    --------
+        x: np.ndarray
+            Array containing the unperturbed samples
+        y: tuple
+            Tuple containing the perturbed data & the augmented z dimension.
+            img: np.ndarray
+                Array containing the perturbed input image.    
+            z: np.ndarray
+                Array containing the augmented z dimension.
+        data: np.ndarray
+            The perturbed samples of shape (batch_size, img_size*img_size+1)
+    """
+    data = perturb(batch, rng, sigma=sigma, tau=tau, M=M, restrict_M=restrict_M)
+    img = get_perturbed_img(data, batch.shape)
+    z = get_perturbed_z(data)
+    y = (img, z)
+    x = batch
+    return x, y, data
