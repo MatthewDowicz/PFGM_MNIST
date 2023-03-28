@@ -139,8 +139,12 @@ def download_MNIST(root_dir: str = 'saved_data/',
     
     return train_dataset, test_dataset
 
-def partition_MNIST(root_dir: str = '/saved_data/MNIST/perturbed/partitioned/',
+def partition_MNIST(dataset: np.ndarray,
+                    root_dir: str = 'saved_data/MNIST/perturbed/partitioned/',
                     perturb_on: bool = True,
+                    sigma: float = 0.2, 
+                    tau: float = 0.06, 
+                    M: int = 291,
                     download: bool = True,
                     validation_frac: float = 1/6):
     """
@@ -171,7 +175,9 @@ def partition_MNIST(root_dir: str = '/saved_data/MNIST/perturbed/partitioned/',
              MNIST test set.
     """
     # Create and save the perturbed datasets
-    training_ds, test_ds = create_perturbed_dataset()
+    training_ds, test_ds = create_perturbed_dataset(sigma=sigma,
+                                                    tau=tau,
+                                                    M=M)
     
     # Define the fraction of data to use for validation
     validation_frac = validation_frac
@@ -411,11 +417,12 @@ def jax_empirical_field(batch: np.ndarray,
     target = np.asarray(gt_direction)
     return perturbed_samples_vec, target
 
-def process_perturbed_data(dataset: np.ndarray, prng: jax.random.PRNGKey,
-                           sigma: float = 0.05,
-                            tau: float = 0.05,
-                            M: int = 291,
-                            restrict_M: bool = True):
+def process_perturbed_data(dataset: np.ndarray, 
+                           prng: jax.random.PRNGKey,
+                           sigma: float = 0.2, 
+                           tau: float = 0.06, 
+                           M: int = 291,
+                           restrict_M: bool = True):
     """
     Function that perturbs the raw MNIST files (ie. train data file/test data file)
     and saves them into a tuple of (perturbed_data, empirical_field).
@@ -460,10 +467,10 @@ def process_perturbed_data(dataset: np.ndarray, prng: jax.random.PRNGKey,
     # Concatenate outputs along the first axis
     return tuple(np.concatenate(o, axis=0) for o in zip(*outputs))
 
-def create_perturbed_dataset(data_dir: str ='/pscratch/sd/m/mdowicz/PFGM_MNIST/saved_data/MNIST/perturbed/',
-                             sigma: float = 0.01, 
+def create_perturbed_dataset(data_dir: str ='saved_data/MNIST/perturbed/',
+                             sigma: float = 0.2, 
                              tau: float = 0.06, 
-                             M: int = 450,
+                             M: int = 291,
                              download: bool = True):
     """
     Function that perturbs raw MNIST datasets and returns perturbed data and empirical field 
